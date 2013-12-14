@@ -1,27 +1,38 @@
 #pragma once
+#pragma comment(lib, "winhttp.lib")
+
 #include <Windows.h>
 #include <winhttp.h>
 #include <string>
-#include <sstream>
 #include <iostream>
 
 #if _HAS_EXCEPTIONS
+
 #include <stdexcept>
 #define THROW_LAST_ERROR(x) { last_error e(x); error_ = e.what(); ok_ = false; throw e; }
 #define THROW_ERROR(x) { std::runtime_error e(x); error_ = e.what(); ok_ = false; throw e; }
+
 #else
+
 #define THROW_LAST_ERROR(x) { error_ = format_last_error(x); ok_ = false; }
 #define THROW_ERROR(x) { error_ = x; ok_ = false; }
+
 #endif
 
 namespace http
 {
 	std::string format_last_error(const std::string &msg)
 	{
-		std::stringstream ss;
-		ss << msg << " (Error: " << GetLastError() << ")";
-		return ss.str();
+		LPSTR buffer = nullptr;
+		DWORD error_code = GetLastError();
+		if(!FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
+			GetModuleHandleA("winhttp.dll"), error_code, 0, (LPSTR)&buffer, 0, nullptr)) {
+			return "Failed to format error";
+		}
+		
+		return msg + ": " + buffer;
 	}
+
 
 #if _HAS_EXCEPTIONS
 	class last_error : public std::runtime_error
@@ -35,7 +46,7 @@ namespace http
 	class session
 	{
 	public:
-		session() : handle_(NULL), ok_(true)
+		session() : handle_(nullptr), ok_(true)
 		{
 			handle_ = WinHttpOpen(L"", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 			if(handle_ == nullptr) {
@@ -46,7 +57,7 @@ namespace http
 
 		~session()
 		{
-			if(handle_ != NULL) WinHttpCloseHandle(handle_);
+			if(handle_ != nullptr) WinHttpCloseHandle(handle_);
 		}
 
 		inline HINTERNET handle() const { return handle_; };
@@ -64,7 +75,7 @@ namespace http
 	{
 	public:
 		handle_manager(HINTERNET h) : handle_(h) {}
-		~handle_manager() { if(handle_ != NULL) WinHttpCloseHandle(handle_); }
+		~handle_manager() { if(handle_ != nullptr) WinHttpCloseHandle(handle_); }
 		inline operator HINTERNET() const { return handle_; }
 
 	public:
@@ -75,22 +86,21 @@ namespace http
 	class connection
 	{
 	public:
-		connection(const session &sess, const std::string &host) : handle_(NULL), ok_(true)
+		connection(const session &sess, const std::string &host) : handle_(nullptr), ok_(true)
 		{
-			std::wstring whost(std::begin(host), std::end(host));
+			host_ = std::wstring(std::begin(host), std::end(host));
 
 			memset(&components_, 0, sizeof(components_));
 			components_.dwStructSize = sizeof(components_);
 			components_.dwSchemeLength = -1;
 			components_.dwHostNameLength = -1;
 
-			if(!WinHttpCrackUrl(whost.c_str(), 0, 0, &components_)) {
+			if(!WinHttpCrackUrl(host_.c_str(), 0, 0, &components_)) {
 				THROW_LAST_ERROR("WinHttpCrackUrl() failed");
 				return;
 			}
 
-			DWORD port = components_.nScheme == INTERNET_SCHEME_HTTPS ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
-			handle_ = WinHttpConnect(sess.handle(), whost.c_str(), port, 0);
+			handle_ = WinHttpConnect(sess.handle(), components_.lpszHostName, components_.nPort, 0);
 			if(handle_ == nullptr) {
 				THROW_LAST_ERROR("WinHttpConnect() failed");
 				return;
@@ -99,7 +109,7 @@ namespace http
 
 		~connection()
 		{
-			if(handle_ != NULL) WinHttpCloseHandle(handle_);
+			if(handle_ != nullptr) WinHttpCloseHandle(handle_);
 		}
 
 		int request(const std::string &method, const std::string &url, const std::string *body, std::ostream *response)
@@ -119,12 +129,12 @@ namespace http
 				return -1;
 			}
 
-			if(url_comps.nScheme != components_.nScheme) {
+			if(url_comps.dwSchemeLength > 0 && url_comps.nScheme != components_.nScheme) {
 				THROW_LAST_ERROR("Request url used a different scheme than the connection was initialized with");
 				return -1;
 			}
 
-			if(wcsicmp(url_comps.lpszHostName, components_.lpszHostName) != 0) {
+			if(url_comps.dwHostNameLength > 0 && _wcsicmp(url_comps.lpszHostName, components_.lpszHostName) != 0) {
 				THROW_LAST_ERROR("Request url used a different host name than the connection was initialized with");
 				return -1;
 			}
@@ -134,14 +144,14 @@ namespace http
 				flags |= WINHTTP_FLAG_SECURE;
 			}
 
-			handle_manager request(WinHttpOpenRequest(handle_, wmethod.c_str(), NULL, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
-			if(request == NULL) {
+			handle_manager request(WinHttpOpenRequest(handle_, wmethod.c_str(), nullptr, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+			if(request == nullptr) {
 				THROW_LAST_ERROR("WinHttpOpenRequest() failed");
 				return -1;
 			}
 
 			DWORD total_request_length = body != nullptr ? body->length() : 0;
-			if(!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, NULL)) {
+			if(!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, 0)) {
 				THROW_LAST_ERROR("WinHttpSendRequest() failed");
 				return -1;
 			}
@@ -158,7 +168,7 @@ namespace http
 				}
 			}
 
-			if(!WinHttpReceiveResponse(request, NULL)) {
+			if(!WinHttpReceiveResponse(request, nullptr)) {
 				THROW_LAST_ERROR("WinHttpReceiveResponse() failed");
 				return -1;
 			}
@@ -201,16 +211,19 @@ namespace http
 					}
 				}
 			}
+
+			return status_code;
 		}
 
-		inline int get(const std::string &url, const std::ostream *response) { return request("GET", url, nullptr, response); }
-		inline int post(const std::string &url, const std::string *body, const std::ostream *response) { return request("POST", url, body, response); }
+		inline int get(const std::string &url, std::ostream *response) { return request("GET", url, nullptr, response); }
+		inline int post(const std::string &url, const std::string *body, std::ostream *response) { return request("POST", url, body, response); }
 
 		inline HINTERNET handle() const { return handle_; };
 		inline bool ok() const { return ok_; }
 		inline const std::string &error() const { return error_; }
 
 	private:
+		std::wstring host_;
 		URL_COMPONENTS components_;
 		HINTERNET handle_;
 		bool ok_;
