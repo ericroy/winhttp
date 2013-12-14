@@ -5,6 +5,7 @@
 #include <winhttp.h>
 #include <string>
 #include <iostream>
+#include <vector>
 
 #if _HAS_EXCEPTIONS
 
@@ -27,9 +28,8 @@ namespace http
 		DWORD error_code = GetLastError();
 		if(!FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
 			GetModuleHandleA("winhttp.dll"), error_code, 0, (LPSTR)&buffer, 0, nullptr)) {
-			return "Failed to format error";
+			return msg + " (Failed to format error)";
 		}
-		
 		return msg + ": " + buffer;
 	}
 
@@ -100,7 +100,8 @@ namespace http
 				return;
 			}
 
-			handle_ = WinHttpConnect(sess.handle(), components_.lpszHostName, components_.nPort, 0);
+			std::wstring host_only(components_.lpszHostName, components_.dwHostNameLength);
+			handle_ = WinHttpConnect(sess.handle(), host_only.c_str(), components_.nPort, 0);
 			if(handle_ == nullptr) {
 				THROW_LAST_ERROR("WinHttpConnect() failed");
 				return;
@@ -112,10 +113,15 @@ namespace http
 			if(handle_ != nullptr) WinHttpCloseHandle(handle_);
 		}
 
-		int request(const std::string &method, const std::string &url, const std::string *body, std::ostream *response)
+		int request(const std::string &method,
+			const std::string &url,
+			const std::vector<std::string> *additional_headers,
+			const std::string *body,
+			std::ostream *response)
 		{
 			std::wstring wmethod(std::begin(method), std::end(method));
 			std::wstring wurl(std::begin(url), std::end(url));
+			std::wstring path = wurl;
 
 			URL_COMPONENTS url_comps;
 			memset(&url_comps, 0, sizeof(url_comps));
@@ -123,31 +129,47 @@ namespace http
 			url_comps.dwSchemeLength = -1;
 			url_comps.dwHostNameLength = -1;
 			url_comps.dwUrlPathLength = -1;
+			if(WinHttpCrackUrl(wurl.c_str(), 0, 0, &url_comps)) {
+				// If we managed to parse it, then it's an absolute url
+				// Validate the scheme, domain, port
+				if(url_comps.dwSchemeLength > 0 && url_comps.nScheme != components_.nScheme) {
+					THROW_LAST_ERROR("Request url used a different scheme than the connection was initialized with");
+					return -1;
+				}
 
-			if(!WinHttpCrackUrl(wurl.c_str(), 0, 0, &url_comps)) {
-				THROW_LAST_ERROR("WinHttpCrackUrl() failed");
-				return -1;
+				if(url_comps.dwHostNameLength > 0 && _wcsnicmp(url_comps.lpszHostName, components_.lpszHostName, url_comps.dwHostNameLength) != 0) {
+					THROW_LAST_ERROR("Request url used a different host name than the connection was initialized with");
+					return -1;
+				}
+
+				if(url_comps.nPort != components_.nPort) {
+					THROW_LAST_ERROR("Request url used a different port than the connection was initialized with");
+					return -1;
+				}
+
+				// Use only the path part for making the request
+				path = url_comps.lpszUrlPath;
 			}
-
-			if(url_comps.dwSchemeLength > 0 && url_comps.nScheme != components_.nScheme) {
-				THROW_LAST_ERROR("Request url used a different scheme than the connection was initialized with");
-				return -1;
-			}
-
-			if(url_comps.dwHostNameLength > 0 && _wcsicmp(url_comps.lpszHostName, components_.lpszHostName) != 0) {
-				THROW_LAST_ERROR("Request url used a different host name than the connection was initialized with");
-				return -1;
-			}
-
+			
 			DWORD flags = 0;
 			if(components_.nScheme == INTERNET_SCHEME_HTTPS) {
 				flags |= WINHTTP_FLAG_SECURE;
 			}
 
-			handle_manager request(WinHttpOpenRequest(handle_, wmethod.c_str(), nullptr, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+			handle_manager request(WinHttpOpenRequest(handle_, wmethod.c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
 			if(request == nullptr) {
 				THROW_LAST_ERROR("WinHttpOpenRequest() failed");
 				return -1;
+			}
+
+			if(additional_headers != nullptr) {
+				for(std::vector<std::string>::const_iterator iter = std::begin(*additional_headers); iter != std::end(*additional_headers); ++iter) {
+					std::wstring header_line(std::begin(*iter), std::end(*iter));
+					if(!WinHttpAddRequestHeaders(request, header_line.c_str(), header_line.length(), WINHTTP_ADDREQ_FLAG_REPLACE)) {
+						THROW_LAST_ERROR("WinHttpAddRequestHeaders() failed");
+						return -1;
+					}
+				}
 			}
 
 			DWORD total_request_length = body != nullptr ? body->length() : 0;
@@ -215,8 +237,8 @@ namespace http
 			return status_code;
 		}
 
-		inline int get(const std::string &url, std::ostream *response) { return request("GET", url, nullptr, response); }
-		inline int post(const std::string &url, const std::string *body, std::ostream *response) { return request("POST", url, body, response); }
+		inline int get(const std::string &url, std::ostream *response = nullptr) { return request("GET", url, nullptr, nullptr, response); }
+		inline int post(const std::string &url, const std::string *body = nullptr, std::ostream *response = nullptr) { return request("POST", url, nullptr, body, response); }
 
 		inline HINTERNET handle() const { return handle_; };
 		inline bool ok() const { return ok_; }
