@@ -33,54 +33,83 @@ namespace http
 	};
 #endif
 
-
-	class session
+	enum option
 	{
-	public:
-		session();
-		~session();
-		inline HINTERNET handle() const { return handle_; };
-		inline bool ok() const { return ok_; }
-		inline const std::string &error() const { return error_; }
-
-	private:
-		HINTERNET handle_;
-		bool ok_;
-		std::string error_;
+		option_allow_unknown_cert_authority = 0,
+		option_allow_invalid_cert_name,
+		option_allow_invalid_cert_date
 	};
-
 
 	class handle_manager
 	{
 	public:
+		handle_manager();
 		handle_manager(HINTERNET h);
-		~handle_manager();
-		inline operator HINTERNET() const { return handle_; }
+		virtual ~handle_manager();
+		inline HINTERNET handle() const { return handle_; };
+		inline void set_handle(HINTERNET h) { handle_ = h; };
+		inline operator HINTERNET() const { return handle_; };
 
-	public:
+	protected:
 		HINTERNET handle_;
 	};
 
+	class error_handler
+	{
+	public:
+		error_handler() : ok_(true) {}
+		virtual ~error_handler() {}
+		inline bool ok() const { return ok_; }
+		inline const std::string &error() const { return error_; }
+
+	protected:
+		bool ok_;
+		std::string error_;
+	};
+
+	class session : public handle_manager, public error_handler
+	{
+	public:
+		session();
+		~session();
+	};
+
+	class request;
+	class response;
+
+	class connection : public handle_manager, public error_handler
+	{
+	public:
+		connection(const session &sess, const std::string &host);
+		virtual ~connection();
+		response send(const request &req);
+		unsigned int flags() const { return flags_; }
+		inline unsigned int timeout() const { return timeout_; }
+		void set_option(option opt, bool on);
+		inline void set_timeout(unsigned int seconds) { timeout_ = seconds; }
+
+	private:
+		std::wstring host_;
+		URL_COMPONENTS components_;
+		unsigned int flags_;
+		unsigned int timeout_;
+	};
 
 	class request
 	{
 	public:
-		enum option
-		{
-			AllowUnknownCertificateAuthorities = 0,
-		};
-
 		request(const std::string &method, const std::string &url);
-		~request();
+		virtual ~request();
 		inline const std::wstring &method() const { return method_; }
 		inline const std::wstring &url() const { return url_; }
 		inline const std::string &body() const { return body_; }
 		inline const std::vector<std::wstring> &additional_headers() const { return additional_headers_; }
+		unsigned int flags() const { return flags_; }
 		inline void set_body(const std::string &body) { body_ = body; }
 		inline void set_body(char *data, size_t length) { body_.clear(); body_.append(data, length); }
 		void add_header(const std::string &name, const std::string &value);
 		void set_option(option opt, bool on);
-
+		
 	private:
 		std::wstring method_;
 		std::wstring url_;
@@ -90,7 +119,7 @@ namespace http
 	};
 
 
-	class response
+	class response : public handle_manager, public error_handler
 	{
 		friend class connection;
 
@@ -98,12 +127,12 @@ namespace http
 		static const int read_buffer_size = 1024 * 1024;
 
 	private:
-		response(HANDLE request);
+		response(HINTERNET request);
 
 	public:
 		response(const response &other) = delete;
 		response(response &&other);
-		~response();
+		virtual ~response();
 		inline const response &operator=(const response &other) = delete;
 		inline const response &operator=(const response &&other) = delete;
 		inline int status() const { return status_; }
@@ -112,31 +141,8 @@ namespace http
 		bool read(std::ostream &out);
 
 	private:
-		HINTERNET handle_;
 		char *buffer_;
 		int status_;
-		bool ok_;
-		std::string error_;
 	};
-
-
-	class connection
-	{
-	public:
-		connection(const session &sess, const std::string &host);
-		~connection();
-		response send(const request &req);
-		inline HINTERNET handle() const { return handle_; };
-		inline bool ok() const { return ok_; }
-		inline const std::string &error() const { return error_; }
-
-	private:
-		std::wstring host_;
-		URL_COMPONENTS components_;
-		HINTERNET handle_;
-		bool ok_;
-		std::string error_;
-	};
-
 
 }

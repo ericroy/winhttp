@@ -14,9 +14,13 @@ namespace http
 	}
 
 
+	handle_manager::handle_manager() : handle_(nullptr) {}
+	handle_manager::handle_manager(HINTERNET h) : handle_(h) {}
+	handle_manager::~handle_manager() { if(handle_ != nullptr) WinHttpCloseHandle(handle_); }
 
 
-	session::session() : handle_(nullptr), ok_(true)
+
+	session::session()
 	{
 		handle_ = WinHttpOpen(L"", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 		if(handle_ == nullptr) {
@@ -27,21 +31,15 @@ namespace http
 
 	session::~session()
 	{
-		if(handle_ != nullptr) WinHttpCloseHandle(handle_);
 	}
-
-
-
-
-	handle_manager::handle_manager(HINTERNET h) : handle_(h) {}
-	handle_manager::~handle_manager() { if(handle_ != nullptr) WinHttpCloseHandle(handle_); }
 		
 
 
 
 	request::request(const std::string &method, const std::string &url)
 		: method_(std::begin(method), std::end(method)),
-		url_(std::begin(url), std::end(url))
+		url_(std::begin(url), std::end(url)),
+		flags_(0)
 	{
 	}
 
@@ -68,8 +66,8 @@ namespace http
 
 
 
-	response::response(HANDLE request)
-		: handle_(request),
+	response::response(HINTERNET request)
+		: handle_manager(request),
 		status_(-1),
 		buffer_(nullptr)
 	{
@@ -90,7 +88,7 @@ namespace http
 	}
 
 	response::response(response &&other)
-		: handle_(other.handle_),
+		: handle_manager(other.handle_),
 		status_(other.status_),
 		buffer_(other.buffer_)
 	{
@@ -100,7 +98,6 @@ namespace http
 
 	response::~response()
 	{
-		if(handle_ != nullptr) WinHttpCloseHandle(handle_);
 		if(buffer_ != nullptr) delete[] buffer_;
 	}
 
@@ -145,7 +142,9 @@ namespace http
 
 
 
-	connection::connection(const session &sess, const std::string &host) : handle_(nullptr), ok_(true)
+	connection::connection(const session &sess, const std::string &host)
+		: flags_(0),
+		timeout_(30)
 	{
 		host_ = std::wstring(std::begin(host), std::end(host));
 
@@ -169,7 +168,16 @@ namespace http
 
 	connection::~connection()
 	{
-		if(handle_ != nullptr) WinHttpCloseHandle(handle_);
+	}
+
+	void connection::set_option(option opt, bool on)
+	{
+		if(on) {
+			flags_ |= (1u << opt);
+		}
+		else {
+			flags_ &= ~(1u << opt);
+		}
 	}
 
 	response connection::send(const request &req)
@@ -205,14 +213,37 @@ namespace http
 			path = url_comps.lpszUrlPath;
 		}
 
-		DWORD flags = 0;
+		DWORD open_request_flags = 0;
 		if(components_.nScheme == INTERNET_SCHEME_HTTPS) {
-			flags |= WINHTTP_FLAG_SECURE;
+			open_request_flags |= WINHTTP_FLAG_SECURE;
 		}
 
-		handle_manager request(WinHttpOpenRequest(handle_, req.method().c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+		handle_manager request(WinHttpOpenRequest(handle_, req.method().c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, open_request_flags));
 		if(request == nullptr) {
 			THROW_LAST_ERROR("WinHttpOpenRequest() failed");
+			return response(nullptr);
+		}
+
+		unsigned int option_flags = flags_ | req.flags();
+		DWORD security_flags = 0;
+		if((option_flags & option_allow_unknown_cert_authority) != 0) {
+			security_flags |= SECURITY_FLAG_IGNORE_UNKNOWN_CA;
+		}
+		if((option_flags & option_allow_invalid_cert_name) != 0) {
+			security_flags |= SECURITY_FLAG_IGNORE_CERT_CN_INVALID;
+		}
+		if((option_flags & option_allow_invalid_cert_date) != 0) {
+			security_flags |= SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+		}
+
+		if(!WinHttpSetOption(request, WINHTTP_OPTION_SECURITY_FLAGS, (LPVOID)&security_flags, sizeof(DWORD))) {
+			THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SECURITY_FLAGS) on request handle failed");
+			return response(nullptr);
+		}
+
+		DWORD timeout = timeout_;
+		if(!WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT, (LPVOID)&timeout, sizeof(DWORD))) {
+			THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SEND_TIMEOUT) on request handle failed");
 			return response(nullptr);
 		}
 
@@ -243,8 +274,8 @@ namespace http
 			}
 		}
 
-		HINTERNET h = request.handle_;
-		request.handle_ = nullptr;
+		HINTERNET h = request.handle();
+		request.set_handle(nullptr);
 		return response(h);
 	}
 
