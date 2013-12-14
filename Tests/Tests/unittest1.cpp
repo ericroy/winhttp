@@ -37,17 +37,25 @@ namespace Tests
 
 		TEST_METHOD(Get)
 		{
+			request req("GET", "http://www.microsoft.com");
+			response resp = conn_.send(req);
+
+			Assert::AreEqual(200, resp.status());
+
 			stringstream ss;
-			int status = conn_.get("http://www.microsoft.com", &ss);
-			Assert::AreEqual(200, status);
+			resp.read(ss);
 			Assert::IsTrue(ss.str().length() > 0);
 		}
 
 		TEST_METHOD(GetRelative)
 		{
+			request req("GET", "/");
+			response resp = conn_.send(req);
+
+			Assert::AreEqual(200, resp.status());
+
 			stringstream ss;
-			int status = conn_.get("/", &ss);
-			Assert::AreEqual(200, status);
+			resp.read(ss);
 			Assert::IsTrue(ss.str().length() > 0);
 		}
 
@@ -64,9 +72,13 @@ namespace Tests
 
 		TEST_METHOD(GetSSL)
 		{
+			request req("GET", "/");
+			response resp = conn_.send(req);
+
+			Assert::AreEqual(200, resp.status());
+
 			stringstream ss;
-			int status = conn_.get("/", &ss);
-			Assert::AreEqual(200, status);
+			resp.read(ss);
 			Assert::IsTrue(ss.str().length() > 0);
 		}
 
