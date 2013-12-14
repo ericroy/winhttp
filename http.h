@@ -1,0 +1,221 @@
+#pragma once
+#include <Windows.h>
+#include <winhttp.h>
+#include <string>
+#include <sstream>
+#include <iostream>
+
+#if _HAS_EXCEPTIONS
+#include <stdexcept>
+#define THROW_LAST_ERROR(x) { last_error e(x); error_ = e.what(); ok_ = false; throw e; }
+#define THROW_ERROR(x) { std::runtime_error e(x); error_ = e.what(); ok_ = false; throw e; }
+#else
+#define THROW_LAST_ERROR(x) { error_ = format_last_error(x); ok_ = false; }
+#define THROW_ERROR(x) { error_ = x; ok_ = false; }
+#endif
+
+namespace http
+{
+	std::string format_last_error(const std::string &msg)
+	{
+		std::stringstream ss;
+		ss << msg << " (Error: " << GetLastError() << ")";
+		return ss.str();
+	}
+
+#if _HAS_EXCEPTIONS
+	class last_error : public std::runtime_error
+	{
+	public:
+		last_error(const char *msg) : std::runtime_error(format_last_error(msg)) {}
+	};
+#endif
+
+
+	class session
+	{
+	public:
+		session() : handle_(NULL), ok_(true)
+		{
+			handle_ = WinHttpOpen(L"", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+			if(handle_ == nullptr) {
+				THROW_LAST_ERROR("WinHttpOpen() failed");
+				return;
+			}
+		}
+
+		~session()
+		{
+			if(handle_ != NULL) WinHttpCloseHandle(handle_);
+		}
+
+		inline HINTERNET handle() const { return handle_; };
+		inline bool ok() const { return ok_; }
+		inline const std::string &error() const { return error_; }
+
+	private:
+		HINTERNET handle_;
+		bool ok_;
+		std::string error_;
+	};
+
+
+	class handle_manager
+	{
+	public:
+		handle_manager(HINTERNET h) : handle_(h) {}
+		~handle_manager() { if(handle_ != NULL) WinHttpCloseHandle(handle_); }
+		inline operator HINTERNET() const { return handle_; }
+
+	public:
+		HINTERNET handle_;
+	};
+
+
+	class connection
+	{
+	public:
+		connection(const session &sess, const std::string &host) : handle_(NULL), ok_(true)
+		{
+			std::wstring whost(std::begin(host), std::end(host));
+
+			memset(&components_, 0, sizeof(components_));
+			components_.dwStructSize = sizeof(components_);
+			components_.dwSchemeLength = -1;
+			components_.dwHostNameLength = -1;
+
+			if(!WinHttpCrackUrl(whost.c_str(), 0, 0, &components_)) {
+				THROW_LAST_ERROR("WinHttpCrackUrl() failed");
+				return;
+			}
+
+			DWORD port = components_.nScheme == INTERNET_SCHEME_HTTPS ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
+			handle_ = WinHttpConnect(sess.handle(), whost.c_str(), port, 0);
+			if(handle_ == nullptr) {
+				THROW_LAST_ERROR("WinHttpConnect() failed");
+				return;
+			}
+		}
+
+		~connection()
+		{
+			if(handle_ != NULL) WinHttpCloseHandle(handle_);
+		}
+
+		int request(const std::string &method, const std::string &url, const std::string *body, std::ostream *response)
+		{
+			std::wstring wmethod(std::begin(method), std::end(method));
+			std::wstring wurl(std::begin(url), std::end(url));
+
+			URL_COMPONENTS url_comps;
+			memset(&url_comps, 0, sizeof(url_comps));
+			url_comps.dwStructSize = sizeof(url_comps);
+			url_comps.dwSchemeLength = -1;
+			url_comps.dwHostNameLength = -1;
+			url_comps.dwUrlPathLength = -1;
+
+			if(!WinHttpCrackUrl(wurl.c_str(), 0, 0, &url_comps)) {
+				THROW_LAST_ERROR("WinHttpCrackUrl() failed");
+				return -1;
+			}
+
+			if(url_comps.nScheme != components_.nScheme) {
+				THROW_LAST_ERROR("Request url used a different scheme than the connection was initialized with");
+				return -1;
+			}
+
+			if(wcsicmp(url_comps.lpszHostName, components_.lpszHostName) != 0) {
+				THROW_LAST_ERROR("Request url used a different host name than the connection was initialized with");
+				return -1;
+			}
+
+			DWORD flags = 0;
+			if(components_.nScheme == INTERNET_SCHEME_HTTPS) {
+				flags |= WINHTTP_FLAG_SECURE;
+			}
+
+			handle_manager request(WinHttpOpenRequest(handle_, wmethod.c_str(), NULL, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+			if(request == NULL) {
+				THROW_LAST_ERROR("WinHttpOpenRequest() failed");
+				return -1;
+			}
+
+			DWORD total_request_length = body != nullptr ? body->length() : 0;
+			if(!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, NULL)) {
+				THROW_LAST_ERROR("WinHttpSendRequest() failed");
+				return -1;
+			}
+
+			if(body != nullptr) {
+				DWORD bytes_written = 0;
+				if(!WinHttpWriteData(request, body->data(), body->length(), &bytes_written)) {
+					THROW_LAST_ERROR("WinHttpWriteData() failed");
+					return -1;
+				}
+				if(bytes_written != body->length()) {
+					THROW_ERROR("WinHttpWriteData did not send entire request body");
+					return -1;
+				}
+			}
+
+			if(!WinHttpReceiveResponse(request, NULL)) {
+				THROW_LAST_ERROR("WinHttpReceiveResponse() failed");
+				return -1;
+			}
+
+			
+			DWORD status_code = 0;
+			DWORD status_code_size = sizeof(status_code);
+			if(!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX)) {
+				THROW_ERROR("WinHttpWriteData did not send entire request body");
+				return -1;
+			}
+
+			if(response != nullptr) {
+				const int buffer_size = 1024 * 1024;
+				char *buffer = new char[buffer_size];
+				while(true) {
+					DWORD data_available;
+					if(!WinHttpQueryDataAvailable(request, &data_available)) {
+						THROW_LAST_ERROR("WinHttpQueryDataAvailable() failed");
+						delete[] buffer;
+						return -1;
+					}
+
+					if(data_available == 0) {
+						break;
+					}
+
+					while(data_available > 0) {
+						DWORD bytes_read;
+						DWORD chunk_size = buffer_size < data_available ? buffer_size : data_available;
+
+						if(!WinHttpReadData(request, buffer, chunk_size, &bytes_read)) {
+							THROW_LAST_ERROR("WinHttpReadData() failed");
+							delete[] buffer;
+							return -1;
+						}
+
+						response->write(buffer, bytes_read);
+						data_available -= bytes_read;
+					}
+				}
+			}
+		}
+
+		inline int get(const std::string &url, const std::ostream *response) { return request("GET", url, nullptr, response); }
+		inline int post(const std::string &url, const std::string *body, const std::ostream *response) { return request("POST", url, body, response); }
+
+		inline HINTERNET handle() const { return handle_; };
+		inline bool ok() const { return ok_; }
+		inline const std::string &error() const { return error_; }
+
+	private:
+		URL_COMPONENTS components_;
+		HINTERNET handle_;
+		bool ok_;
+		std::string error_;
+	};
+
+
+}
