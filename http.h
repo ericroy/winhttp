@@ -22,8 +22,12 @@
 
 namespace http
 {
-	std::string format_last_error(const std::string &msg);
+	class request;
+	class response;
+	
 
+	std::string format_last_error(const std::string &msg);
+	
 
 #if _HAS_EXCEPTIONS
 	class last_error : public std::runtime_error
@@ -33,12 +37,14 @@ namespace http
 	};
 #endif
 
+
 	enum option
 	{
 		option_allow_unknown_cert_authority = 0,
 		option_allow_invalid_cert_name,
 		option_allow_invalid_cert_date
 	};
+
 
 	class handle_manager
 	{
@@ -54,6 +60,7 @@ namespace http
 		HINTERNET handle_;
 	};
 
+
 	class error_handler
 	{
 	public:
@@ -67,6 +74,7 @@ namespace http
 		std::string error_;
 	};
 
+
 	class session : public handle_manager, public error_handler
 	{
 	public:
@@ -74,8 +82,6 @@ namespace http
 		~session();
 	};
 
-	class request;
-	class response;
 
 	class connection : public handle_manager, public error_handler
 	{
@@ -94,6 +100,7 @@ namespace http
 		unsigned int flags_;
 		unsigned int timeout_;
 	};
+
 
 	class request
 	{
