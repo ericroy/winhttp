@@ -45,16 +45,16 @@ namespace http
 
 				const char *tail = " (Failed to format error)";
 				char *ret = new char[lstrlenA(msg) + lstrlenA(tail) + 1];
-				lstrcpy(ret, msg);
-				lstrcat(ret, tail);
+				lstrcpyA(ret, msg);
+				lstrcatA(ret, tail);
 				return ret;
 			}
 
 			const char *sep = ": ";
 			char *ret = new char[lstrlenA(msg) + lstrlenA(sep) + lstrlenA(buffer) + 1];
-			lstrcpy(ret, msg);
-			lstrcat(ret, sep);
-			lstrcat(ret, buffer);
+			lstrcpyA(ret, msg);
+			lstrcatA(ret, sep);
+			lstrcatA(ret, buffer);
 			return ret;
 		}
 
