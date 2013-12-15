@@ -4,7 +4,7 @@
 #undef _HAS_EXCEPTIONS
 #define _HAS_EXCEPTIONS 1
 
-#define WINHTTP_NOSTL 0
+#define WINHTTP_NOSTL 1
 
 #include "../../http_stl.h"
 #include "../../http_nostl.h"
@@ -81,7 +81,7 @@ namespace Tests
 		TEST_METHOD(GetWithAdditionalHeaders)
 		{
 			request req("GET", "/");
-			req.add_header("Connection: keep-alive");
+			req.add_header("Accept-Language: en-US");
 			
 			response resp = conn_.send(req);
 

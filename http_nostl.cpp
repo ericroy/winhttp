@@ -192,7 +192,7 @@ namespace http
 
 			const request::header_line *entry = req.headers_head_;
 			while(entry != nullptr) {
-				if(!WinHttpAddRequestHeaders(request, entry->line_, wcslen(entry->line_), WINHTTP_ADDREQ_FLAG_REPLACE)) {
+				if(!WinHttpAddRequestHeaders(request, entry->line_, wcslen(entry->line_), WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE)) {
 					set_error("WinHttpAddRequestHeaders() failed");
 					return response(nullptr);
 				}
@@ -281,8 +281,7 @@ namespace http
 
 		response::response(HINTERNET request)
 			: handle_manager(request),
-			status_(-1),
-			buffer_(nullptr)
+			status_(-1)
 		{
 			if(handle_ != nullptr) {
 				if(!WinHttpReceiveResponse(request, nullptr)) {
@@ -302,16 +301,13 @@ namespace http
 
 		response::response(response &&other)
 			: handle_manager(other.handle_),
-			status_(other.status_),
-			buffer_(other.buffer_)
+			status_(other.status_)
 		{
 			other.handle_ = nullptr;
-			other.buffer_ = nullptr;
 		}
 
 		response::~response()
 		{
-			safe_array_delete(buffer_);
 		}
 
 		bool response::read(char *buffer, size_t count, size_t *bytes_read)
@@ -320,14 +316,10 @@ namespace http
 				return false;
 			}
 
-			if(buffer_ == nullptr) {
-				buffer_ = new char[read_buffer_size];
-			}
-
 			size_t remaining = count;
 			char *p = buffer;
 
-			while(true) {
+			while(remaining > 0) {
 
 				DWORD data_available;
 				if(!WinHttpQueryDataAvailable(handle_, &data_available)) {
@@ -341,14 +333,13 @@ namespace http
 
 				while(data_available > 0 && remaining > 0) {
 					DWORD copied;
-					DWORD chunk_size = tri_min(read_buffer_size, data_available, remaining);
+					DWORD chunk_size = data_available < remaining ? data_available : remaining;
 
-					if(!WinHttpReadData(handle_, buffer_, chunk_size, &copied)) {
+					if(!WinHttpReadData(handle_, p, chunk_size, &copied)) {
 						set_error("WinHttpReadData() failed");
 						return false;
 					}
 
-					memcpy(p, buffer_, copied);
 					p += copied;
 					data_available -= copied;
 					remaining -= copied;

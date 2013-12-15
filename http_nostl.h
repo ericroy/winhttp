@@ -39,6 +39,7 @@ namespace http
 		public:
 			handle_manager();
 			handle_manager(HINTERNET h);
+			handle_manager(const handle_manager &other) = delete;
 			virtual ~handle_manager();
 			inline HINTERNET handle() const { return handle_; };
 			inline void set_handle(HINTERNET h) { handle_ = h; };
@@ -126,9 +127,6 @@ namespace http
 			friend class connection;
 
 		private:
-			static const int read_buffer_size = 1024 * 1024;
-
-		private:
 			response(HINTERNET request);
 
 		public:
@@ -143,7 +141,6 @@ namespace http
 			bool read(char *buffer, size_t count, size_t *bytes_read);
 
 		private:
-			char *buffer_;
 			int status_;
 		};
 

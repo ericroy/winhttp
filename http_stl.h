@@ -54,6 +54,7 @@ namespace http
 		public:
 			handle_manager();
 			handle_manager(HINTERNET h);
+			handle_manager(const handle_manager &other) = delete;
 			virtual ~handle_manager();
 			inline HINTERNET handle() const { return handle_; };
 			inline void set_handle(HINTERNET h) { handle_ = h; };

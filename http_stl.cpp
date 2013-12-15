@@ -146,7 +146,7 @@ namespace http
 
 			auto headersEnd = std::end(req.additional_headers_);
 			for(auto iter = std::begin(req.additional_headers_); iter != headersEnd; ++iter) {
-				if(!WinHttpAddRequestHeaders(request, iter->c_str(), iter->length(), WINHTTP_ADDREQ_FLAG_REPLACE)) {
+				if(!WinHttpAddRequestHeaders(request, iter->c_str(), iter->length(), WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE)) {
 					THROW_LAST_ERROR("WinHttpAddRequestHeaders() failed");
 					return response(nullptr);
 				}
