@@ -1,4 +1,5 @@
 #include "http_nostl.h"
+#include <cstdlib>
 
 namespace http
 {
@@ -9,6 +10,13 @@ namespace http
 		{
 			size_t temp = a < b ? a : b;
 			return (temp < c ? temp : c);
+		}
+
+		inline void safe_free(void *s)
+		{
+			if(s != nullptr) {
+				free(s);
+			}
 		}
 
 		inline void safe_delete(void *s)

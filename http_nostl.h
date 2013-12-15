@@ -54,10 +54,10 @@ namespace http
 		{
 		public:
 			error_handler() : ok_(true), error_(nullptr) {}
-			virtual ~error_handler() { if(error_ != nullptr) free(error_); }
+			virtual ~error_handler() { safe_free(error_); }
 			inline bool ok() const { return ok_; }
 			inline const char *error() const { return error_; }
-			inline void set_error(const char *msg) { if(error_ != nullptr) { free(error_); } error_ = _strdup(msg); }
+			inline void set_error(const char *msg) { safe_free(error_); error_ = _strdup(msg); }
 
 		protected:
 			bool ok_;
