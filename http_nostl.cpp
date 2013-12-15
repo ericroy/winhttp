@@ -37,8 +37,7 @@ namespace http
 		{
 			int length = lstrlenA(s);
 			wchar_t *ws = new wchar_t[length + 1];
-			MultiByteToWideChar(CP_ACP, 0, s, length, ws, length + 1);
-			ws[length] = 0;
+			MultiByteToWideChar(CP_UTF8, 0, s, length + 1, ws, length + 1);
 			return ws;
 		}
 
