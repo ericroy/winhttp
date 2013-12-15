@@ -1,17 +1,42 @@
 #include "stdafx.h"
 #include "CppUnitTest.h"
-#include <sstream>
 
 #undef _HAS_EXCEPTIONS
 #define _HAS_EXCEPTIONS 1
-#include "../../http.h"
+
+#define WINHTTP_NOSTL 0
+
+#include "../../http_stl.h"
+#include "../../http_nostl.h"
+
+#include <sstream>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace std;
-using namespace http;
+
+#if WINHTTP_NOSTL
+using namespace http::nostl;
+#else
+using namespace http::stl;
+#endif
 
 namespace Tests
-{		
+{
+	void Check(response &resp)
+	{
+#if WINHTTP_NOSTL
+		char buffer[128];
+		size_t read;
+		bool success = resp.read(buffer, 128, &read);
+		Assert::IsTrue(success);
+		Assert::IsTrue(read > 0);
+#else
+		stringstream ss;
+		resp.read(ss);
+		Assert::IsTrue(ss.str().length() > 0);
+#endif
+	}
+
 	TEST_CLASS(StackInstantiation)
 	{
 	public:
@@ -41,10 +66,7 @@ namespace Tests
 			response resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
-
-			stringstream ss;
-			resp.read(ss);
-			Assert::IsTrue(ss.str().length() > 0);
+			Check(resp);
 		}
 
 		TEST_METHOD(GetRelative)
@@ -53,10 +75,18 @@ namespace Tests
 			response resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
+			Check(resp);
+		}
 
-			stringstream ss;
-			resp.read(ss);
-			Assert::IsTrue(ss.str().length() > 0);
+		TEST_METHOD(GetWithAdditionalHeaders)
+		{
+			request req("GET", "/");
+			req.add_header("Connection: keep-alive");
+			
+			response resp = conn_.send(req);
+
+			Assert::AreEqual(200, resp.status());
+			Check(resp);
 		}
 
 		session sess_;
@@ -76,10 +106,7 @@ namespace Tests
 			response resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
-
-			stringstream ss;
-			resp.read(ss);
-			Assert::IsTrue(ss.str().length() > 0);
+			Check(resp);
 		}
 
 		session sess_;
