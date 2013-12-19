@@ -235,6 +235,20 @@ namespace http
 
 
 
+		request::header_line::header_line(wchar_t *line)
+			: line_(line),
+			next_(nullptr)
+		{
+		}
+
+		request::header_line::~header_line()
+		{
+			safe_delete(line_);
+			safe_delete(next_);
+		}
+
+
+
 		request::request(const char *method, const char *url)
 			: method_(alloc_wide_string(method)),
 			url_(alloc_wide_string(url)),

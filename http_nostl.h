@@ -13,15 +13,7 @@ namespace http
 		class response;
 
 		void safe_free(void *s);
-
-		template<class T> struct free_manager
-		{
-			free_manager(T *p) : p_(p) {}
-			free_manager() : p_(nullptr) {}
-			~free_manager() { safe_free(p_); }
-			inline operator T() const { return p_; }
-			T *p_;
-		};
+		void safe_delete(void *s);
 
 		char *format_last_error(const char *msg);
 
@@ -99,8 +91,8 @@ namespace http
 		public:
 			struct header_line
 			{
-				header_line(wchar_t *line) : line_(line), next_(nullptr) {}
-				~header_line() { safe_free(line_); safe_free(next_); }
+				header_line(wchar_t *line);
+				~header_line();
 				header_line *next_;
 				wchar_t *line_;
 			};
