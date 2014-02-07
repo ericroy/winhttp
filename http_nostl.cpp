@@ -199,7 +199,7 @@ namespace http
 
 			const request::header_line *entry = req.headers_head_;
 			while(entry != nullptr) {
-				if(!WinHttpAddRequestHeaders(request, entry->line_, wcslen(entry->line_), WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE)) {
+				if(!WinHttpAddRequestHeaders(request, entry->line_, lstrlenW(entry->line_), WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE)) {
 					set_error("WinHttpAddRequestHeaders() failed");
 					return response(nullptr);
 				}
