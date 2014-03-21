@@ -1,8 +1,29 @@
 #pragma once
-#pragma comment(lib, "winhttp.lib")
-
 #include <Windows.h>
+
+#ifndef WH_USE_WININET
+#define WH_INTERNET(X) WinHttp##X
+#define WH_INTERNETW(X) WinHttp##X
+#define WH_HTTP(X) WinHttp##X
+#define WH_HTTPW(X) WinHttp##X
+#define WH_INTERNET_CONST(X) WINHTTP_##X
+#define WH_HTTP_CONST(X) WINHTTP_##X
+#define WH_WININET_ARGS(...)
+#define WH_WINHTTP_ARGS(...) ,__VA_ARGS__
+#pragma comment(lib, "winhttp.lib")
 #include <winhttp.h>
+#else
+#define WH_INTERNET(X) Internet##X
+#define WH_INTERNETW(X) Internet##X##W
+#define WH_HTTP(X) Http##X
+#define WH_HTTPW(X) Http##X##W
+#define WH_INTERNET_CONST(X) INTERNET_##X
+#define WH_HTTP_CONST(X) HTTP_##X
+#define WH_WININET_ARGS(...) ,__VA_ARGS__
+#define WH_WINHTTP_ARGS(...)
+#pragma comment(lib, "wininet.lib")
+#include <WinInet.h>
+#endif
 
 namespace http
 {
@@ -78,7 +99,7 @@ namespace http
 
 		private:
 			wchar_t *host_;
-			URL_COMPONENTS components_;
+			URL_COMPONENTSW components_;
 			unsigned int flags_;
 			unsigned int timeout_;
 		};

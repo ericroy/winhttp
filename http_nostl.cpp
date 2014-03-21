@@ -68,13 +68,13 @@ namespace http
 
 		handle_manager::handle_manager() : handle_(nullptr) {}
 		handle_manager::handle_manager(HINTERNET h) : handle_(h) {}
-		handle_manager::~handle_manager() { if(handle_ != nullptr) WinHttpCloseHandle(handle_); }
+		handle_manager::~handle_manager() { if(handle_ != nullptr) WH_INTERNET(CloseHandle)(handle_); }
 
 
 
 		session::session()
 		{
-			handle_ = WinHttpOpen(L"", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+			handle_ = WH_INTERNETW(Open)(L"", 0, nullptr, nullptr, 0);
 			if(handle_ == nullptr) {
 				set_error("WinHttpOpen() failed");
 				return;
@@ -99,7 +99,7 @@ namespace http
 			components_.dwSchemeLength = -1;
 			components_.dwHostNameLength = -1;
 
-			if(!WinHttpCrackUrl(host_, 0, 0, &components_)) {
+			if(!WH_INTERNETW(CrackUrl)(host_, 0, 0, &components_)) {
 				set_error("WinHttpCrackUrl() failed");
 				return;
 			}
@@ -107,7 +107,11 @@ namespace http
 			size_t buffer_bytes = (components_.dwHostNameLength + 1) * sizeof(wchar_t);
 			wchar_t *host_only = new wchar_t[buffer_bytes];
 			wcsncpy_s(host_only, buffer_bytes, components_.lpszHostName, components_.dwHostNameLength);
+#ifdef WH_USE_WININET
+			handle_ = InternetConnectW(sess.handle(), host_only, components_.nPort, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 0);
+#else
 			handle_ = WinHttpConnect(sess.handle(), host_only, components_.nPort, 0);
+#endif
 			safe_array_delete(host_only);
 
 			if(handle_ == nullptr) {
@@ -135,13 +139,13 @@ namespace http
 		{
 			const wchar_t *path = req.url_;
 
-			URL_COMPONENTS url_comps;
+			URL_COMPONENTSW url_comps;
 			memset(&url_comps, 0, sizeof(url_comps));
 			url_comps.dwStructSize = sizeof(url_comps);
 			url_comps.dwSchemeLength = -1;
 			url_comps.dwHostNameLength = -1;
 			url_comps.dwUrlPathLength = -1;
-			if(WinHttpCrackUrl(req.url_, 0, 0, &url_comps)) {
+			if(WH_INTERNETW(CrackUrl)(req.url_, 0, 0, &url_comps)) {
 				// If we managed to parse it, then it's an absolute url
 				// Validate the scheme, domain, port
 				if(url_comps.dwSchemeLength > 0 && url_comps.nScheme != components_.nScheme) {
@@ -165,10 +169,11 @@ namespace http
 
 			DWORD open_request_flags = 0;
 			if(components_.nScheme == INTERNET_SCHEME_HTTPS) {
-				open_request_flags |= WINHTTP_FLAG_SECURE;
+				open_request_flags |= WH_INTERNET_CONST(FLAG_SECURE);
 			}
 
-			handle_manager request(WinHttpOpenRequest(handle_, req.method_, path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, open_request_flags));
+			const wchar_t *accept_types[] = {L"*/*", nullptr};
+			handle_manager request(WH_HTTPW(OpenRequest)(handle_, req.method_, path, nullptr, nullptr, accept_types, open_request_flags WH_WININET_ARGS(0) ));
 			if(request == nullptr) {
 				set_error("WinHttpOpenRequest() failed");
 				return response(nullptr);
@@ -186,35 +191,42 @@ namespace http
 				security_flags |= SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
 			}
 
-			if(!WinHttpSetOption(request, WINHTTP_OPTION_SECURITY_FLAGS, (LPVOID)&security_flags, sizeof(DWORD))) {
+			if(!WH_INTERNET(SetOption)(request, WH_INTERNET_CONST(OPTION_SECURITY_FLAGS), (LPVOID)&security_flags, sizeof(DWORD))) {
 				set_error("WinHttpSetOption(WINHTTP_OPTION_SECURITY_FLAGS) on request handle failed");
 				return response(nullptr);
 			}
 
 			DWORD timeout = timeout_;
-			if(!WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT, (LPVOID)&timeout, sizeof(DWORD))) {
+			if(!WH_INTERNET(SetOption)(request, WH_INTERNET_CONST(OPTION_SEND_TIMEOUT), (LPVOID)&timeout, sizeof(DWORD))) {
 				set_error("WinHttpSetOption(WINHTTP_OPTION_SEND_TIMEOUT) on request handle failed");
 				return response(nullptr);
 			}
 
 			const request::header_line *entry = req.headers_head_;
 			while(entry != nullptr) {
-				if(!WinHttpAddRequestHeaders(request, entry->line_, lstrlenW(entry->line_), WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE)) {
+				if(!WH_HTTPW(AddRequestHeaders)(request, entry->line_, lstrlenW(entry->line_), WH_HTTP_CONST(ADDREQ_FLAG_ADD) | WH_HTTP_CONST(ADDREQ_FLAG_REPLACE))) {
 					set_error("WinHttpAddRequestHeaders() failed");
 					return response(nullptr);
 				}
 				entry = entry->next_;
 			}
 
-			DWORD total_request_length = req.body_length_;
-			if(!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, 0)) {
+			DWORD total_request_length = (DWORD)req.body_length_;
+
+#ifdef WH_USE_WININET
+			if(!HttpSendRequestW(request, nullptr, 0, req.body_, total_request_length)) {
+				set_error("HttpSendRequest() failed");
+				return response(nullptr);
+			}
+#else
+			if(!WinHttpSendRequest(request, nullptr, 0, nullptr, 0, total_request_length, 0)) {
 				set_error("WinHttpSendRequest() failed");
 				return response(nullptr);
 			}
 
 			if(total_request_length > 0) {
 				DWORD bytes_written = 0;
-				if(!WinHttpWriteData(request, req.body_, req.body_length_, &bytes_written)) {
+				if(!WinHttpWriteData(request, req.body_, total_request_length, &bytes_written)) {
 					set_error("WinHttpWriteData() failed");
 					return response(nullptr);
 				}
@@ -223,6 +235,7 @@ namespace http
 					return response(nullptr);
 				}
 			}
+#endif
 
 			HINTERNET h = request.handle();
 			request.set_handle(nullptr);
@@ -305,11 +318,22 @@ namespace http
 			status_(-1)
 		{
 			if(handle_ != nullptr) {
+#ifdef WH_USE_WININET
+				char status_code[32];
+				DWORD status_code_size = sizeof(status_code);
+				DWORD header_index = 0;
+				if(!HttpQueryInfo(request, HTTP_QUERY_STATUS_CODE, &status_code, &status_code_size, &header_index)) {
+					set_error("HttpQueryInfo() failed");
+					return;
+				}
+				status_code[status_code_size] = 0;
+				status_ = atoi(status_code);
+#else
 				if(!WinHttpReceiveResponse(request, nullptr)) {
 					set_error("WinHttpReceiveResponse() failed");
 					return;
 				}
-
+				
 				DWORD status_code = 0;
 				DWORD status_code_size = sizeof(status_code);
 				if(!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX)) {
@@ -317,6 +341,7 @@ namespace http
 					return;
 				}
 				status_ = (int)status_code;
+#endif
 			}
 		}
 
@@ -343,7 +368,7 @@ namespace http
 			while(remaining > 0) {
 
 				DWORD data_available;
-				if(!WinHttpQueryDataAvailable(handle_, &data_available)) {
+				if(!WH_INTERNET(QueryDataAvailable)(handle_, &data_available WH_WININET_ARGS(0, 0) )) {
 					set_error("WinHttpQueryDataAvailable() failed");
 					return false;
 				}
@@ -356,10 +381,17 @@ namespace http
 					DWORD copied;
 					DWORD chunk_size = data_available < remaining ? data_available : remaining;
 
+#ifdef WH_USE_WININET
+					if(!InternetReadFile(handle_, p, chunk_size, &copied)) {
+						set_error("InternetReadFile() failed");
+						return false;
+					}
+#else
 					if(!WinHttpReadData(handle_, p, chunk_size, &copied)) {
 						set_error("WinHttpReadData() failed");
 						return false;
 					}
+#endif
 
 					p += copied;
 					data_available -= copied;
