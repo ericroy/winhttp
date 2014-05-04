@@ -22,7 +22,7 @@ using namespace http::stl;
 
 namespace Tests
 {
-	void Check(response &resp)
+	void Check(response_t &resp)
 	{
 #if WINHTTP_NOSTL
 		char buffer[128];
@@ -42,13 +42,13 @@ namespace Tests
 	public:
 		TEST_METHOD(Session)
 		{
-			session sess;
+			session_t sess("My User Agent");
 		}
 
 		TEST_METHOD(Connection)
 		{
-			session sess;
-			connection conn(sess, "http://www.microsoft.com");
+			session_t sess("My User Agent");
+			connection_t conn(sess, "http://www.microsoft.com");
 		}
 	};
 
@@ -56,14 +56,14 @@ namespace Tests
 	TEST_CLASS(Requests)
 	{
 	public:
-		Requests() : sess_(), conn_(sess_, "http://www.microsoft.com/blah.html") {}
+		Requests() : sess_("My User Agent"), conn_(sess_, "http://www.microsoft.com/blah.html") {}
 		TEST_METHOD_INITIALIZE(Setup) {}
 		TEST_METHOD_CLEANUP(TearDown) {}
 
 		TEST_METHOD(Get)
 		{
-			request req("GET", "http://www.microsoft.com");
-			response resp = conn_.send(req);
+			request_t req("GET", "http://www.microsoft.com");
+			response_t resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
 			Check(resp);
@@ -71,8 +71,8 @@ namespace Tests
 
 		TEST_METHOD(GetRelative)
 		{
-			request req("GET", "/");
-			response resp = conn_.send(req);
+			request_t req("GET", "/");
+			response_t resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
 			Check(resp);
@@ -80,36 +80,36 @@ namespace Tests
 
 		TEST_METHOD(GetWithAdditionalHeaders)
 		{
-			request req("GET", "/");
+			request_t req("GET", "/");
 			req.add_header("Accept-Language: en-US");
 			
-			response resp = conn_.send(req);
+			response_t resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
 			Check(resp);
 		}
 
-		session sess_;
-		connection conn_;
+		session_t sess_;
+		connection_t conn_;
 	};
 
 	TEST_CLASS(RequestsSSL)
 	{
 	public:
-		RequestsSSL() : sess_(), conn_(sess_, "https://google.com/index.html") {}
+		RequestsSSL() : sess_("My User Agent"), conn_(sess_, "https://google.com/index.html") {}
 		TEST_METHOD_INITIALIZE(Setup) {}
 		TEST_METHOD_CLEANUP(TearDown) {}
 
 		TEST_METHOD(GetSSL)
 		{
-			request req("GET", "/");
-			response resp = conn_.send(req);
+			request_t req("GET", "/");
+			response_t resp = conn_.send(req);
 
 			Assert::AreEqual(200, resp.status());
 			Check(resp);
 		}
 
-		session sess_;
-		connection conn_;
+		session_t sess_;
+		connection_t conn_;
 	};
 }

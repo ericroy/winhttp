@@ -30,8 +30,8 @@ namespace http
 	namespace nostl
 	{
 
-		class request;
-		class response;
+		class request_t;
+		class response_t;
 
 		void safe_free(void *s);
 		void safe_delete(void *s);
@@ -39,7 +39,7 @@ namespace http
 		char *format_last_error(const char *msg);
 
 
-		enum option
+		enum option_t
 		{
 			option_allow_unknown_cert_authority = 0,
 			option_allow_invalid_cert_name,
@@ -47,13 +47,13 @@ namespace http
 		};
 
 
-		class handle_manager
+		class handle_manager_t
 		{
 		public:
-			handle_manager();
-			handle_manager(HINTERNET h);
-			handle_manager(const handle_manager &other) = delete;
-			virtual ~handle_manager();
+			handle_manager_t();
+			handle_manager_t(HINTERNET h);
+			handle_manager_t(const handle_manager_t &other) = delete;
+			virtual ~handle_manager_t();
 			inline HINTERNET handle() const { return handle_; };
 			inline void set_handle(HINTERNET h) { handle_ = h; };
 			inline operator HINTERNET() const { return handle_; };
@@ -63,11 +63,11 @@ namespace http
 		};
 
 
-		class error_handler
+		class error_handler_t
 		{
 		public:
-			error_handler() : ok_(true), error_(nullptr) {}
-			virtual ~error_handler() { safe_free(error_); }
+			error_handler_t() : ok_(true), error_(nullptr) {}
+			virtual ~error_handler_t() { safe_free(error_); }
 			inline bool ok() const { return ok_; }
 			inline const char *error() const { return error_; }
 			inline void set_error(const char *msg) { safe_free(error_); error_ = _strdup(msg); }
@@ -78,23 +78,23 @@ namespace http
 		};
 
 
-		class session : public handle_manager, public error_handler
+		class session_t : public handle_manager_t, public error_handler_t
 		{
 		public:
-			session();
-			~session();
+			session_t(const char *user_agent);
+			~session_t();
 		};
 
 
-		class connection : public handle_manager, public error_handler
+		class connection_t : public handle_manager_t, public error_handler_t
 		{
 		public:
-			connection(const session &sess, const char *host);
-			virtual ~connection();
-			response send(const request &req);
+			connection_t(const session_t &sess, const char *host);
+			virtual ~connection_t();
+			response_t send(const request_t &req);
 			unsigned int flags() const { return flags_; }
 			inline unsigned int timeout() const { return timeout_; }
-			void set_option(option opt, bool on);
+			void set_option(option_t opt, bool on);
 			inline void set_timeout(unsigned int seconds) { timeout_ = seconds; }
 
 		private:
@@ -105,9 +105,9 @@ namespace http
 		};
 
 
-		class request
+		class request_t
 		{
-			friend class connection;
+			friend class connection_t;
 
 		public:
 			struct header_line
@@ -118,11 +118,11 @@ namespace http
 				wchar_t *line_;
 			};
 
-			request(const char *method, const char *url);
-			virtual ~request();
+			request_t(const char *method, const char *url);
+			virtual ~request_t();
 			void set_body(const char *data, size_t length);
 			void add_header(const char *line);
-			void set_option(option opt, bool on);
+			void set_option(option_t opt, bool on);
 			
 		private:
 			wchar_t *method_;
@@ -135,19 +135,19 @@ namespace http
 		};
 
 
-		class response : public handle_manager, public error_handler
+		class response_t : public handle_manager_t, public error_handler_t
 		{
-			friend class connection;
+			friend class connection_t;
 
 		private:
-			response(HINTERNET request);
+			response_t(HINTERNET request_t);
 
 		public:
-			response(const response &other) = delete;
-			response(response &&other);
-			virtual ~response();
-			inline const response &operator=(const response &other) = delete;
-			inline const response &operator=(const response &&other) = delete;
+			response_t(const response_t &other) = delete;
+			response_t(response_t &&other);
+			virtual ~response_t();
+			inline const response_t &operator=(const response_t &other) = delete;
+			inline const response_t &operator=(const response_t &&other) = delete;
 			inline int status() const { return status_; }
 			inline bool succeeded() const { return status_ >= 200 && status_ < 300; }
 			inline bool failed() const { return !succeeded(); }

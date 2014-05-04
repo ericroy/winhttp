@@ -10,29 +10,35 @@ namespace http
 			LPSTR buffer = nullptr;
 			DWORD error_code = GetLastError();
 			if(!FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
-				GetModuleHandleA("winhttp.dll"), error_code, 0, (LPSTR)&buffer, 0, nullptr)) {
+#ifdef WH_USE_WININET
+				GetModuleHandleA("wininet.dll"),
+#else
+				GetModuleHandleA("winhttp.dll"),
+#endif				
+				error_code, 0, (LPSTR)&buffer, 0, nullptr)) {
 				return msg + " (Failed to format error)";
 			}
 			return msg + ": " + buffer;
 		}
 
 
-		handle_manager::handle_manager() : handle_(nullptr) {}
-		handle_manager::handle_manager(HINTERNET h) : handle_(h) {}
-		handle_manager::~handle_manager() { if(handle_ != nullptr) WH_INTERNET(CloseHandle)(handle_); }
+		handle_manage_t::handle_manage_t() : handle_(nullptr) {}
+		handle_manage_t::handle_manage_t(HINTERNET h) : handle_(h) {}
+		handle_manage_t::~handle_manage_t() { if(handle_ != nullptr) WH_INTERNET(CloseHandle)(handle_); }
 
 
 
-		session::session()
+		session_t::session_t(const std::string &user_agent)
 		{
-			handle_ = WH_INTERNETW(Open)(L"", 0, nullptr, nullptr, 0);
+			std::wstring wide_user_agent = std::wstring(std::begin(user_agent), std::end(user_agent));
+			handle_ = WH_INTERNETW(Open)(wide_user_agent.c_str(), 0, nullptr, nullptr, 0);
 			if(handle_ == nullptr) {
 				THROW_LAST_ERROR("WinHttpOpen() failed");
 				return;
 			}
 		}
 
-		session::~session()
+		session_t::~session_t()
 		{
 		}
 
@@ -41,7 +47,7 @@ namespace http
 
 
 
-		connection::connection(const session &sess, const std::string &host)
+		connection_t::connection_t(const session_t &sess, const std::string &host)
 			: flags_(0),
 			timeout_(30)
 		{
@@ -69,11 +75,11 @@ namespace http
 			}
 		}
 
-		connection::~connection()
+		connection_t::~connection_t()
 		{
 		}
 
-		void connection::set_option(option opt, bool on)
+		void connection_t::set_option(option_t opt, bool on)
 		{
 			if(on) {
 				flags_ |= (1u << opt);
@@ -82,7 +88,7 @@ namespace http
 			}
 		}
 
-		response connection::send(const request &req)
+		response_t connection_t::send(const request_t &req)
 		{
 			std::wstring path = req.url_;
 
@@ -96,21 +102,21 @@ namespace http
 				// If we managed to parse it, then it's an absolute url
 				// Validate the scheme, domain, port
 				if(url_comps.dwSchemeLength > 0 && url_comps.nScheme != components_.nScheme) {
-					THROW_LAST_ERROR("Request url used a different scheme than the connection was initialized with");
-					return response(nullptr);
+					THROW_LAST_ERROR("request_t url used a different scheme than the connection_t was initialized with");
+					return response_t(nullptr);
 				}
 
 				if(url_comps.dwHostNameLength > 0 && _wcsnicmp(url_comps.lpszHostName, components_.lpszHostName, url_comps.dwHostNameLength) != 0) {
-					THROW_LAST_ERROR("Request url used a different host name than the connection was initialized with");
-					return response(nullptr);
+					THROW_LAST_ERROR("request_t url used a different host name than the connection_t was initialized with");
+					return response_t(nullptr);
 				}
 
 				if(url_comps.nPort != components_.nPort) {
-					THROW_LAST_ERROR("Request url used a different port than the connection was initialized with");
-					return response(nullptr);
+					THROW_LAST_ERROR("request_t url used a different port than the connection_t was initialized with");
+					return response_t(nullptr);
 				}
 
-				// Use only the path part for making the request
+				// Use only the path part for making the request_t
 				path = url_comps.lpszUrlPath;
 			}
 
@@ -120,10 +126,10 @@ namespace http
 			}
 
 			const wchar_t *accept_types[] = { L"*/*", nullptr };
-			handle_manager request(WH_HTTPW(OpenRequest)(handle_, req.method_.c_str(), path.c_str(), nullptr, nullptr, accept_types, open_request_flags WH_WININET_ARGS(0) ));
-			if(request == nullptr) {
+			handle_manage_t request_t(WH_HTTPW(OpenRequest)(handle_, req.method_.c_str(), path.c_str(), nullptr, nullptr, accept_types, open_request_flags WH_WININET_ARGS(0) ));
+			if(request_t == nullptr) {
 				THROW_LAST_ERROR("WinHttpOpenRequest() failed");
-				return response(nullptr);
+				return response_t(nullptr);
 			}
 
 			unsigned int option_flags = flags_ | req.flags_;
@@ -138,54 +144,54 @@ namespace http
 				security_flags |= SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
 			}
 
-			if(!WH_INTERNET(SetOption)(request, WH_INTERNET_CONST(OPTION_SECURITY_FLAGS), (LPVOID)&security_flags, sizeof(DWORD))) {
-				THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SECURITY_FLAGS) on request handle failed");
-				return response(nullptr);
+			if(!WH_INTERNET(SetOption)(request_t, WH_INTERNET_CONST(OPTION_SECURITY_FLAGS), (LPVOID)&security_flags, sizeof(DWORD))) {
+				THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SECURITY_FLAGS) on request_t handle failed");
+				return response_t(nullptr);
 			}
 
 			DWORD timeout = timeout_;
-			if(!WH_INTERNET(SetOption)(request, WH_INTERNET_CONST(OPTION_SEND_TIMEOUT), (LPVOID)&timeout, sizeof(DWORD))) {
-				THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SEND_TIMEOUT) on request handle failed");
-				return response(nullptr);
+			if(!WH_INTERNET(SetOption)(request_t, WH_INTERNET_CONST(OPTION_SEND_TIMEOUT), (LPVOID)&timeout, sizeof(DWORD))) {
+				THROW_LAST_ERROR("WinHttpSetOption(WINHTTP_OPTION_SEND_TIMEOUT) on request_t handle failed");
+				return response_t(nullptr);
 			}
 
-			auto headersEnd = std::end(req.additional_headers_);
-			for(auto iter = std::begin(req.additional_headers_); iter != headersEnd; ++iter) {
-				if(!WH_HTTPW(AddRequestHeaders)(request, iter->c_str(), iter->length(), WH_HTTP_CONST(ADDREQ_FLAG_ADD) | WH_HTTP_CONST(ADDREQ_FLAG_REPLACE))) {
+			auto headers_end = std::end(req.additional_headers_);
+			for(auto iter = std::begin(req.additional_headers_); iter != headers_end; ++iter) {
+				if(!WH_HTTPW(AddRequestHeaders)(request_t, iter->c_str(), iter->length(), WH_HTTP_CONST(ADDREQ_FLAG_ADD) | WH_HTTP_CONST(ADDREQ_FLAG_REPLACE))) {
 					THROW_LAST_ERROR("WinHttpAddRequestHeaders() failed");
-					return response(nullptr);
+					return response_t(nullptr);
 				}
 			}
 
 			DWORD total_request_length = (DWORD)req.body_.length();
 
 #ifdef WH_USE_WININET
-			if(!HttpSendRequestW(request, nullptr, 0, (LPVOID)req.body_.c_str(), total_request_length)) {
+			if(!HttpSendRequestW(request_t, nullptr, 0, (LPVOID)req.body_.c_str(), total_request_length)) {
 				THROW_LAST_ERROR("HttpSendRequest() failed");
-				return response(nullptr);
+				return response_t(nullptr);
 			}
 #else
-			if(!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, 0)) {
+			if(!WinHttpSendRequest(request_t, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, total_request_length, 0)) {
 				THROW_LAST_ERROR("WinHttpSendRequest() failed");
-				return response(nullptr);
+				return response_t(nullptr);
 			}
 
 			if(total_request_length > 0) {
 				DWORD bytes_written = 0;
-				if(!WinHttpWriteData(request, req.body_.data(), total_request_length, &bytes_written)) {
+				if(!WinHttpWriteData(request_t, req.body_.data(), total_request_length, &bytes_written)) {
 					THROW_LAST_ERROR("WinHttpWriteData() failed");
-					return response(nullptr);
+					return response_t(nullptr);
 				}
 				if(bytes_written != req.body_.length()) {
-					THROW_ERROR("WinHttpWriteData did not send entire request body");
-					return response(nullptr);
+					THROW_ERROR("WinHttpWriteData did not send entire request_t body");
+					return response_t(nullptr);
 				}
 			}
 #endif
 
-			HINTERNET h = request.handle();
-			request.set_handle(nullptr);
-			return response(h);
+			HINTERNET h = request_t.handle();
+			request_t.set_handle(nullptr);
+			return response_t(h);
 		}
 
 
@@ -194,23 +200,23 @@ namespace http
 
 
 
-		request::request(const std::string &method, const std::string &url)
+		request_t::request_t(const std::string &method, const std::string &url)
 			: method_(std::begin(method), std::end(method)),
 			url_(std::begin(url), std::end(url)),
 			flags_(0)
 		{
 		}
 
-		request::~request()
+		request_t::~request_t()
 		{
 		}
 
-		void request::add_header(const std::string &line)
+		void request_t::add_header(const std::string &line)
 		{
 			additional_headers_.push_back(std::wstring(std::begin(line), std::end(line)));
 		}
 
-		void request::set_option(option opt, bool on)
+		void request_t::set_option(option_t opt, bool on)
 		{
 			if(on) {
 				flags_ |= (1u << opt);
@@ -223,8 +229,8 @@ namespace http
 
 
 
-		response::response(HINTERNET request)
-			: handle_manager(request),
+		response_t::response_t(HINTERNET request_t)
+			: handle_manage_t(request_t),
 			status_(-1),
 			buffer_(nullptr)
 		{
@@ -233,22 +239,22 @@ namespace http
 				char status_code[32];
 				DWORD status_code_size = sizeof(status_code);
 				DWORD header_index = 0;
-				if(!HttpQueryInfo(request, HTTP_QUERY_STATUS_CODE, &status_code, &status_code_size, &header_index)) {
+				if(!HttpQueryInfoA(request_t, HTTP_QUERY_STATUS_CODE, &status_code, &status_code_size, &header_index)) {
 					THROW_LAST_ERROR("HttpQueryInfo() failed");
 					return;
 				}
 				status_code[status_code_size] = 0;
 				status_ = atoi(status_code);
 #else
-				if(!WinHttpReceiveResponse(request, nullptr)) {
+				if(!WinHttpReceiveResponse(request_t, nullptr)) {
 					THROW_LAST_ERROR("WinHttpReceiveResponse() failed");
 					return;
 				}
 
 				DWORD status_code = 0;
 				DWORD status_code_size = sizeof(status_code);
-				if(!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX)) {
-					THROW_ERROR("WinHttpWriteData did not send entire request body");
+				if(!WinHttpQueryHeaders(request_t, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status_code, &status_code_size, WINHTTP_NO_HEADER_INDEX)) {
+					THROW_ERROR("WinHttpWriteData did not send entire request_t body");
 					return;
 				}
 				status_ = (int)status_code;
@@ -256,8 +262,8 @@ namespace http
 			}
 		}
 
-		response::response(response &&other)
-			: handle_manager(other.handle_),
+		response_t::response_t(response_t &&other)
+			: handle_manage_t(other.handle_),
 			status_(other.status_),
 			buffer_(other.buffer_)
 		{
@@ -265,12 +271,12 @@ namespace http
 			other.buffer_ = nullptr;
 		}
 
-		response::~response()
+		response_t::~response_t()
 		{
 			if(buffer_ != nullptr) delete[] buffer_;
 		}
 
-		bool response::read(std::ostream &out)
+		bool response_t::read(std::ostream &out)
 		{
 			if(handle_ == nullptr) {
 				return false;

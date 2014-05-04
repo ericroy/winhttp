@@ -32,7 +32,7 @@
 #if _HAS_EXCEPTIONS
 
 #include <stdexcept>
-#define THROW_LAST_ERROR(x) { last_error e(x); error_ = e.what(); ok_ = false; throw e; }
+#define THROW_LAST_ERROR(x) { last_error_t e(x); error_ = e.what(); ok_ = false; throw e; }
 #define THROW_ERROR(x) { std::runtime_error e(x); error_ = e.what(); ok_ = false; throw e; }
 
 #else
@@ -47,23 +47,23 @@ namespace http
 	namespace stl
 	{
 
-		class request;
-		class response;
+		class request_t;
+		class response_t;
 
 
 		std::string format_last_error(const std::string &msg);
 
 
 #if _HAS_EXCEPTIONS
-		class last_error : public std::runtime_error
+		class last_error_t : public std::runtime_error
 		{
 		public:
-			last_error(const char *msg) : std::runtime_error(format_last_error(msg)) {}
+			last_error_t(const char *msg) : std::runtime_error(format_last_error(msg)) {}
 		};
 #endif
 
 
-		enum option
+		enum option_t
 		{
 			option_allow_unknown_cert_authority = 0,
 			option_allow_invalid_cert_name,
@@ -71,13 +71,13 @@ namespace http
 		};
 
 
-		class handle_manager
+		class handle_manage_t
 		{
 		public:
-			handle_manager();
-			handle_manager(HINTERNET h);
-			handle_manager(const handle_manager &other) = delete;
-			virtual ~handle_manager();
+			handle_manage_t();
+			handle_manage_t(HINTERNET h);
+			handle_manage_t(const handle_manage_t &other) = delete;
+			virtual ~handle_manage_t();
 			inline HINTERNET handle() const { return handle_; };
 			inline void set_handle(HINTERNET h) { handle_ = h; };
 			inline operator HINTERNET() const { return handle_; };
@@ -87,11 +87,11 @@ namespace http
 		};
 
 
-		class error_handler
+		class error_handler_t
 		{
 		public:
-			error_handler() : ok_(true) {}
-			virtual ~error_handler() {}
+			error_handler_t() : ok_(true) {}
+			virtual ~error_handler_t() {}
 			inline bool ok() const { return ok_; }
 			inline const std::string &error() const { return error_; }
 
@@ -101,23 +101,23 @@ namespace http
 		};
 
 
-		class session : public handle_manager, public error_handler
+		class session_t : public handle_manage_t, public error_handler_t
 		{
 		public:
-			session();
-			~session();
+			session_t(const std::string &user_agent);
+			~session_t();
 		};
 
 
-		class connection : public handle_manager, public error_handler
+		class connection_t : public handle_manage_t, public error_handler_t
 		{
 		public:
-			connection(const session &sess, const std::string &host);
-			virtual ~connection();
-			response send(const request &req);
+			connection_t(const session_t &sess, const std::string &host);
+			virtual ~connection_t();
+			response_t send(const request_t &req);
 			unsigned int flags() const { return flags_; }
 			inline unsigned int timeout() const { return timeout_; }
-			void set_option(option opt, bool on);
+			void set_option(option_t opt, bool on);
 			inline void set_timeout(unsigned int seconds) { timeout_ = seconds; }
 
 		private:
@@ -128,17 +128,17 @@ namespace http
 		};
 
 
-		class request
+		class request_t
 		{
-			friend class connection;
+			friend class connection_t;
 
 		public:
-			request(const std::string &method, const std::string &url);
-			virtual ~request();
+			request_t(const std::string &method, const std::string &url);
+			virtual ~request_t();
 			inline void set_body(const std::string &body) { body_ = body; }
 			inline void set_body(const char *data, size_t length) { body_.clear(); body_.append(data, length); }
 			void add_header(const std::string &line);
-			void set_option(option opt, bool on);
+			void set_option(option_t opt, bool on);
 
 		private:
 			std::wstring method_;
@@ -149,22 +149,22 @@ namespace http
 		};
 
 
-		class response : public handle_manager, public error_handler
+		class response_t : public handle_manage_t, public error_handler_t
 		{
-			friend class connection;
+			friend class connection_t;
 
 		private:
 			static const int read_buffer_size = 1024 * 1024;
 
 		private:
-			response(HINTERNET request);
+			response_t(HINTERNET request_t);
 
 		public:
-			response(const response &other) = delete;
-			response(response &&other);
-			virtual ~response();
-			inline const response &operator=(const response &other) = delete;
-			inline const response &operator=(const response &&other) = delete;
+			response_t(const response_t &other) = delete;
+			response_t(response_t &&other);
+			virtual ~response_t();
+			inline const response_t &operator=(const response_t &other) = delete;
+			inline const response_t &operator=(const response_t &&other) = delete;
 			inline int status() const { return status_; }
 			inline bool succeeded() const { return status_ >= 200 && status_ < 300; }
 			inline bool failed() const { return !succeeded(); }
